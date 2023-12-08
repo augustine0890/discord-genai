@@ -14,29 +14,36 @@ import (
 )
 
 const (
-	promptFormat    = "\n\nHuman:%s\n\nAssistant:"
-	claudeV2ModelID = "anthropic.claude-v2" //https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids-arns.html
+	systemInstruction = "Generate a response that can be displayed in Discord"
+	modelID           = "amazon.titan-text-lite-v1" //https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids-arns.html
+	// modelID = "amazon.titan-text-express-v1"
 )
 
-const prompt = `<paragraph> 
-"In 1758, the Swedish botanist and zoologist Carl Linnaeus published in his Systema Naturae, the two-word naming of species (binomial nomenclature). Canis is the Latin word meaning "dog", and under this genus, he listed the domestic dog, the wolf, and the golden jackal."
-</paragraph>
+const prompt = "Who invented the airplane?"
 
-Please rewrite the above paragraph to make it understandable to a 5th grader.
-
-Please output your rewrite in <rewrite></rewrite> tags.`
-
-type Request struct {
-	Prompt            string   `json:"prompt"`
-	MaxTokensToSample int      `json:"max_tokens_to_sample"`
-	Temperature       float64  `json:"temperature,omitempty"`
-	TopP              float64  `json:"top_p,omitempty"`
-	TopK              float64  `json:"top_k,omitempty"`
-	StopSequences     []string `json:"stop_sequences,omitempty"`
+// TextGenerationConfig holds the configuration for text generation.
+type TextGenerationConfig struct {
+	MaxTokenCount int      `json:"maxTokenCount"`
+	StopSequences []string `json:"stopSequences"`
+	Temperature   float64  `json:"temperature"`
+	TopP          float64  `json:"topP"`
 }
 
-type Response struct {
-	Completion string `json:"completion"`
+// Input represents the payload for model invocation.
+type Input struct {
+	InputText            string               `json:"inputText"`
+	TextGenerationConfig TextGenerationConfig `json:"textGenerationConfig"`
+}
+
+type Result struct {
+	TokenCount       int    `json:"tokenCount"`
+	OutputText       string `json:"outputText"`
+	CompletionReason string `json:"completionReason"`
+}
+
+type Output struct {
+	InputTextTokenCount int      `json:"inputTextTokenCount"`
+	Results             []Result `json:"results"`
 }
 
 func main() {
@@ -57,14 +64,21 @@ func main() {
 	}
 
 	bedrockClient := bedrockruntime.NewFromConfig(cfg)
-
-	payload := Request{
-		Prompt:            fmt.Sprintf(promptFormat, prompt),
-		MaxTokensToSample: 2048,
-		Temperature:       0.7,
-		TopK:              250,
-		TopP:              1,
+	textGenerationConfig := TextGenerationConfig{
+		Temperature:   0.8,
+		TopP:          1.0,
+		MaxTokenCount: 256,
+		StopSequences: []string{},
 	}
+
+	// Append the system instruction to the prompt
+	fullPrompt := prompt + " {{" + systemInstruction + " }}"
+
+	payload := Input{
+		InputText:            fullPrompt,
+		TextGenerationConfig: textGenerationConfig,
+	}
+
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		log.Fatal(err)
@@ -72,18 +86,18 @@ func main() {
 
 	output, err := bedrockClient.InvokeModel(context.Background(), &bedrockruntime.InvokeModelInput{
 		Body:        payloadBytes,
-		ModelId:     aws.String(claudeV2ModelID),
+		ModelId:     aws.String(modelID),
 		ContentType: aws.String("application/json"),
 	})
 	if err != nil {
 		log.Fatalf("Failed to invoke model: %v\n", err)
 	}
 
-	var resp Response
+	var resp Output
 	err = json.Unmarshal(output.Body, &resp)
 	if err != nil {
 		log.Fatalf("Failed to unmarshal response: %v\n", err)
 	}
 
-	fmt.Println("Response from LLM: \n", resp.Completion)
+	fmt.Println("Response from LLM: \n", resp)
 }
